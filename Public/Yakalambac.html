@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<title>Ebe Multiplayer Oyun</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #f4f7fb;
+    font-family: Arial, sans-serif;
+  }
+  #resetBtn {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: #d33;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 5px;
+    z-index: 10;
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: #e0e7ff;
+    border: 1px solid #333;
+  }
+</style>
+</head>
+<body>
+<button id="resetBtn">Oyunu Sıfırla</button>
+<canvas id="game" width="800" height="500"></canvas>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const resetBtn = document.getElementById('resetBtn');
+
+  let local = {
+    id: null,
+    x: 100,
+    y: 100,
+    color: '#000',
+    name: '',
+    frozen: false,
+    countdown: 0,
+    speed: 200
+  };
+  let others = {};
+  let keys = {};
+
+  socket.on('connect', () => {
+    console.log('Bağlandı, ID:', socket.id);
+    local.id = socket.id;
+  });
+
+  socket.on('currentPlayers', players => {
+    for(let id in players) {
+      if(id === socket.id) {
+        Object.assign(local, players[id]);
+      } else {
+        others[id] = players[id];
+      }
+    }
+  });
+
+  socket.on('newPlayer', player => {
+    others[player.id] = player;
+  });
+
+  socket.on('playerMoved', player => {
+    if (player.id !== local.id) {
+      others[player.id] = player;
+    }
+  });
+
+  socket.on('playerDisconnected', id => {
+    delete others[id];
+  });
+
+  socket.on('playerFrozen', player => {
+    if (player.id === local.id) Object.assign(local, player);
+    else others[player.id] = player;
+  });
+
+  socket.on('countdownUpdate', data => {
+    if (data.id === local.id) local.countdown = data.countdown;
+    else if (others[data.id]) others[data.id].countdown = data.countdown;
+  });
+
+  socket.on('playerUnfrozen', player => {
+    if (player.id === local.id) Object.assign(local, player);
+    else others[player.id] = player;
+  });
+
+  socket.on('youAreEbe', () => {
+    resetBtn.style.display = 'block';
+  });
+
+  socket.on('gameReset', () => {
+    resetBtn.style.display = 'none';
+  });
+
+  socket.on('updatePlayers', players => {
+    others = {};
+    for (let id in players) {
+      if (id === local.id) {
+        Object.assign(local, players[id]);
+      } else {
+        others[id] = players[id];
+      }
+    }
+  });
+
+  resetBtn.onclick = () => {
+    socket.emit('resetGame');
+  };
+
+  window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+
+    // A tuşuna basıldığında oyun sıfırlansın
+    if (e.key.toLowerCase() === 'a') {
+      socket.emit('resetGame');
+    }
+  });
+  window.addEventListener('keyup', e => {
+    keys[e.key] = false;
+  });
+
+  let lastTime = performance.now();
+  function gameLoop(time) {
+    const dt = (time - lastTime) / 1000;
+    lastTime = time;
+
+    if (!local.frozen) {
+      let dx = 0, dy = 0;
+      if (keys['ArrowUp'] || keys['w']) dy -= 1;
+      if (keys['ArrowDown'] || keys['s']) dy += 1;
+      if (keys['ArrowLeft'] || keys['a']) dx -= 1;
+      if (keys['ArrowRight'] || keys['d']) dx += 1;
+
+      if (dx !== 0 || dy !== 0) {
+        const len = Math.hypot(dx, dy) || 1;
+        local.x += (dx / len) * local.speed * dt;
+        local.y += (dy / len) * local.speed * dt;
+
+        local.x = Math.max(16, Math.min(canvas.width - 16, local.x));
+        local.y = Math.max(16, Math.min(canvas.height - 16, local.y));
+
+        socket.emit('playerMovement', { x: Math.round(local.x), y: Math.round(local.y) });
+      }
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    function drawPlayer(p) {
+      ctx.beginPath();
+      ctx.fillStyle = p.color;
+      ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.closePath();
+
+      ctx.fillStyle = '#111';
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.name, p.x, p.y - 24);
+
+      if (p.frozen && p.countdown > 0) {
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText(p.countdown, p.x, p.y + 8);
+      }
+    }
+
+    for (const id in others) {
+      drawPlayer(others[id]);
+    }
+    drawPlayer(local);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
