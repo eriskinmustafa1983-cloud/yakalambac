@@ -144,6 +144,7 @@ io.on('connection', socket => {
   });
 });
 
+const PORT = process.env.PORT || 3000;
 server.listen(3000, () => {
   console.log('Sunucu 3000 portunda çalışıyor');
 });
